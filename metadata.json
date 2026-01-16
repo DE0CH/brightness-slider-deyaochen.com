@@ -1,0 +1,9 @@
+{
+  "uuid": "brightness-slider@deyaochen.com",
+  "name": "External Monitor Brightness",
+  "description": "Brightness slider using ddccontrol",
+  "version": 1,
+  "shell-version": ["42", "43", "44", "45", "46", "47", "48", "49", "50"]
+} 
+
+
