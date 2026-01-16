@@ -19,18 +19,57 @@ class Slider extends QuickSettings.QuickSlider {
 
         this.slider.accessible_name = 'External Brightness';
         this._updating = false;
+        this._bufferedValue = null;
+        this._timeoutId = null;
+        this._inactivityTimeoutId = null;
 
         // read initial value
         this._readBrightness();
 
-        // write on change
+        // write on change: update buffer; start periodic sender and reset inactivity timer
         this._handler = this.slider.connect('notify::value', () => {
             if (this._updating) return;
 
             const v = Math.round(this.slider.value * 100);
-            const cmd = WRITE_CMD.replace('{v}', v.toString());
-            GLib.spawn_command_line_async(cmd);
+            this._bufferedValue = v;
+
+            // start periodic sender if not running
+            if (!this._timeoutId) {
+                this._sendBufferedValue();
+                this._timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                    try {
+                        this._sendBufferedValue();
+                    } catch (e) {
+                        log(e.toString());
+                    }
+                    return true; // continue repeating
+                });
+            }
+
+            // reset inactivity timer: stop periodic sender after 2s of no moves
+            if (this._inactivityTimeoutId) {
+                GLib.source_remove(this._inactivityTimeoutId);
+                this._inactivityTimeoutId = null;
+            }
+            this._inactivityTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                if (this._timeoutId) {
+                    GLib.source_remove(this._timeoutId);
+                    this._timeoutId = null;
+                }
+                this._inactivityTimeoutId = null;
+                return false; // do not repeat
+            });
         });
+    }
+    _sendBufferedValue() {
+        try {
+            if (this._bufferedValue !== null) {
+                const cmd = WRITE_CMD.replace('{v}', this._bufferedValue.toString());
+                GLib.spawn_command_line_async(cmd);
+            }
+        } catch (e) {
+            log(e.toString());
+        }
     }
     _readBrightness() {
         try {
@@ -50,6 +89,7 @@ class Slider extends QuickSettings.QuickSlider {
             this._updating = true;
             this.slider.value = value / max;
             this._updating = false;
+            this._bufferedValue = Math.round(this.slider.value * 100);
         } catch (e) {
             log(e.toString());
         }
@@ -57,6 +97,10 @@ class Slider extends QuickSettings.QuickSlider {
     destroy() {
         if (this._handler)
             this.slider.disconnect(this._handler);
+        if (this._timeoutId)
+            GLib.source_remove(this._timeoutId);
+        if (this._inactivityTimeoutId)
+            GLib.source_remove(this._inactivityTimeoutId);
         super.destroy();
     }
 });
